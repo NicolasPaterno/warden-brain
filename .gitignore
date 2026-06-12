@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Virtualenv (uv)
+.venv/
+
+# Secrets — never commit the real one
+.env
+
+# IDE
+.idea/
+
+# OS
+.DS_Store
