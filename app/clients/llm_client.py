@@ -1,4 +1,5 @@
 import ollama
+from app.domain.errors import LlmError
 
 
 class LlmClient:
@@ -7,8 +8,11 @@ class LlmClient:
         self._model = model
 
     async def generate(self, prompt: str) -> str:
-        response = await self._client.chat(
-            model=self._model,
-            messages=[{"role": "user", "content": prompt}],
+        try:
+            response = await self._client.chat(
+                model=self._model,
+                messages=[{"role": "user", "content": prompt}],
         )
+        except (ollama.ResponseError, ConnectionError) as err:
+            raise LlmError("Ollama failed to generate Response") from err
         return response.message.content
