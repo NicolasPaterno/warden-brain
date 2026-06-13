@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 import httpx
@@ -17,6 +18,10 @@ from app.services.chat_service import ChatService
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    logging.basicConfig(
+        level=settings.log_level.upper(),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     async with httpx.AsyncClient() as http:
         llm = LlmClient(
             host=settings.llm_host,

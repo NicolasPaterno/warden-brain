@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
 from app.clients.auth_client import AuthClient
@@ -5,6 +6,8 @@ from app.clients.gateway_client import GatewayClient
 from app.clients.llm_client import LlmClient
 from app.domain.chat import ChatAnswer, ChatRequest
 from app.domain.reading import SensorReading
+
+logger = logging.getLogger(__name__)
 
 GET_READINGS_TOOL = {
     "type": "function",
@@ -66,14 +69,20 @@ class ChatService:
             },
             {"role": "user", "content": request.user_message},
         ]
+        logger.info("chat start: question=%r", request.user_message)
 
-        for _ in range(4):
+        for turn in range(4):
+            logger.debug("turn %d: calling llm with %d messages", turn, len(messages))
             reply = await self.llm.chat(messages, tools=[GET_READINGS_TOOL])
 
             if not reply.tool_calls:
+                logger.info("turn %d: llm answered directly (no tool call)", turn)
+                logger.debug("final answer: %r", reply.content)
                 return ChatAnswer(answer=reply.content)
 
+            logger.info("turn %d: llm requested %d tool call(s)", turn, len(reply.tool_calls))
             for call in reply.tool_calls:
+                logger.info("tool call: name=%s arguments=%s", call.name, call.arguments)
                 gw_token = await self.auth.exchange(user_token, "warden-gateway")
 
                 period = call.arguments.get("period", "last_24h")
@@ -87,10 +96,16 @@ class ChatService:
                     start=start,
                     end=end,
                 )
+                logger.info(
+                    "gateway returned %d readings (room=%s type=%s period=%s)",
+                    len(readings), call.arguments.get("room"), call.arguments.get("type"), period,
+                )
+                logger.debug("readings sample: %s", readings[:3])
 
                 text = self._summarize_readings(readings)
                 messages.append({"role": "tool", "tool_name": call.name, "content": text})
 
+        logger.warning("tool loop exhausted (4 turns) without a final answer")
         return ChatAnswer(answer="I was not able find any response based the available data")
 
     @staticmethod
