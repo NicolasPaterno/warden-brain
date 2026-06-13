@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2:3b"
     app_env: str = "local"
     log_level: str = "INFO"
+    auth_base_url: str = "http://localhost:8082"
+    gateway_base_url: str = "http://localhost:8080"
+    brain_client_id: str = ""
+    brain_client_secret: str = ""
 
 
 @lru_cache
