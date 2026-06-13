@@ -1,17 +1,13 @@
-from functools import lru_cache
+from fastapi import Request
 
-from app.clients.llm_client import LlmClient
-from app.config import get_settings
 from app.services.chat_service import ChatService
 
 
-@lru_cache
-def get_chat_service() -> ChatService:
-    """Builds the ChatService once (and reuses it) — the composition root for /chat.
+def get_chat_service(request: Request) -> ChatService:
+    """Returns the singleton ChatService built once in main.py's lifespan.
 
-    @lru_cache makes this a singleton: the LlmClient (and its AsyncClient) is
-    created on the first request and reused afterwards, instead of per request.
+    No @lru_cache here: the instance already lives on app.state for the app's
+    whole life. FastAPI injects the Starlette `request`, and `request.app` is
+    the FastAPI app — so we just read what the lifespan stored.
     """
-    settings = get_settings()
-    llm_client = LlmClient(host=settings.ollama_host, model=settings.ollama_model)
-    return ChatService(llm_client)
+    return request.app.state.chat_service

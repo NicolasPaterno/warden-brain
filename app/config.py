@@ -9,8 +9,8 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
-    ollama_host: str = "http://localhost:11434"
-    ollama_model: str = "llama3.2:3b"
+    llm_host: str = "http://localhost:11434"
+    llm_model: str = "llama3.2:3b"
     app_env: str = "local"
     log_level: str = "INFO"
     auth_base_url: str = "http://localhost:8082"
