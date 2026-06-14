@@ -9,6 +9,10 @@ from app.domain.reading import SensorReading
 
 logger = logging.getLogger(__name__)
 
+# Bounds the agent loop: each turn is one LLM round-trip, so this caps how many
+# times the model may call a tool before we give up and return a fallback.
+MAX_TURNS = 4
+
 GET_READINGS_TOOL = {
     "type": "function",
     "function": {
@@ -71,7 +75,12 @@ class ChatService:
         ]
         logger.info("chat start: question=%r", request.user_message)
 
-        for turn in range(4):
+        # The exchanged gateway token is the same for the whole request, so trade
+        # the user's token at most ONCE (lazily, on the first tool call). Doing it
+        # per call/turn would spam auth's token-exchange and risk its rate limiter.
+        gw_token: str | None = None
+
+        for turn in range(MAX_TURNS):
             logger.debug("turn %d: calling llm with %d messages", turn, len(messages))
             reply = await self.llm.chat(messages, tools=[GET_READINGS_TOOL])
 
@@ -101,7 +110,8 @@ class ChatService:
             )
             for call in reply.tool_calls:
                 logger.info("tool call: name=%s arguments=%s", call.name, call.arguments)
-                gw_token = await self.auth.exchange(user_token, "warden-gateway")
+                if gw_token is None:
+                    gw_token = await self.auth.exchange(user_token, "warden-gateway")
 
                 period = call.arguments.get("period", "last_24h")
                 end = datetime.now(timezone.utc)
@@ -123,7 +133,7 @@ class ChatService:
                 text = self._summarize_readings(readings)
                 messages.append({"role": "tool", "tool_name": call.name, "content": text})
 
-        logger.warning("tool loop exhausted (4 turns) without a final answer")
+        logger.warning("tool loop exhausted (%d turns) without a final answer", MAX_TURNS)
         return ChatAnswer(answer="I was not able find any response based the available data")
 
     @staticmethod
@@ -133,14 +143,15 @@ class ChatService:
 
         values = [r.value for r in readings]
         current = max(readings, key=lambda r: r.timestamp)
+        unit = current.unit
         min_value = min(values)
         max_value = max(values)
         avg_value = sum(values) / len(values)
 
         return (
-            f"Current: {current.value:.2f}{current.unit}\n"
-            f"Window: min {min_value:.2f}, max {max_value:.2f}, "
-            f"avg {avg_value:.2f} ({len(readings)} readings)"
+            f"Current: {current.value:.2f}{unit}\n"
+            f"Window: min {min_value:.2f}{unit}, max {max_value:.2f}{unit}, "
+            f"avg {avg_value:.2f}{unit} ({len(readings)} readings)"
         )
 
     @staticmethod
