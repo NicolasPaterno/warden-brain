@@ -36,7 +36,7 @@ GET_READINGS_TOOL = {
                     "description": (
                         "How far back to look. Use 'last_hour' for current/now "
                         "conditions, 'last_24h' for today or last night, 'last_7d' for "
-                        "the past week. Defaults to 'last_hour' if the user gives no time."
+                        "the past week. Defaults to 'last_24h' if the user gives no time."
                     ),
                 },
             },
