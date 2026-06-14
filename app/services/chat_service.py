@@ -78,9 +78,27 @@ class ChatService:
             if not reply.tool_calls:
                 logger.info("turn %d: llm answered directly (no tool call)", turn)
                 logger.debug("final answer: %r", reply.content)
-                return ChatAnswer(answer=reply.content)
+                # content is Optional: a local model can answer with no tool call
+                # AND no text. Honor ChatAnswer's str contract instead of letting
+                # Pydantic raise on None.
+                return ChatAnswer(answer=reply.content or "I couldn't produce an answer for that.")
 
             logger.info("turn %d: llm requested %d tool call(s)", turn, len(reply.tool_calls))
+            # Echo the assistant turn that requested the tools back into history
+            # BEFORE the results, so the model sees the assistant(tool_calls) ->
+            # tool(result) pair the protocol expects (otherwise it tends to repeat
+            # the same call and exhaust the loop). A plain dict keeps the ollama
+            # Message type out of the service — `messages` is already its dict shape.
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": reply.content or "",
+                    "tool_calls": [
+                        {"function": {"name": c.name, "arguments": c.arguments}}
+                        for c in reply.tool_calls
+                    ],
+                }
+            )
             for call in reply.tool_calls:
                 logger.info("tool call: name=%s arguments=%s", call.name, call.arguments)
                 gw_token = await self.auth.exchange(user_token, "warden-gateway")
