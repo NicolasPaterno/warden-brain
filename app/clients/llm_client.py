@@ -30,7 +30,11 @@ class LlmClient:
                 messages=messages,
                 tools=tools,
         )
-        except (ollama.ResponseError, ConnectionError) as err:
+        except (ollama.ResponseError, ConnectionError, httpx.HTTPError) as err:
+            # ollama maps connect failures to builtin ConnectionError, but a slow
+            # model can still surface httpx.ReadTimeout (which ollama does NOT wrap).
+            # Catch the httpx base too so a timing-out Ollama becomes a graceful 503,
+            # matching ping()'s coverage — not a raw 500.
             raise LlmError("Ollama failed to generate Response") from err
 
         msg = response.message
