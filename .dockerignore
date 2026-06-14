@@ -1,0 +1,21 @@
+# Build context hygiene — keep the image small and never ship secrets.
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets — NEVER copy the real env into an image.
+.env
+
+# VCS + IDE + OS
+.git/
+.gitignore
+.github/
+.idea/
+.DS_Store
+
+# Tests and docs aren't needed at runtime.
+tests/
+*.md

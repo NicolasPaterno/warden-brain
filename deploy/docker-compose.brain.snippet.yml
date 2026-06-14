@@ -1,0 +1,55 @@
+# Reference snippet — paste this `brain` service into warden-infra's
+# local/docker-compose.yml (alongside auth, gateway, engine, etc).
+# The brain itself is NOT a standalone stack; it needs auth + gateway from infra.
+#
+# Ports already taken by infra (host): auth 8082, gateway 8080. The brain maps
+# host 8083 -> container 8000 to avoid clashing.
+#
+# Ollama: the brain talks to a LOCAL Ollama (no API key). The simplest setup is
+# Ollama running on the HOST, reached from the container via host.docker.internal.
+# If you later add an `ollama` service to compose, set LLM_HOST=http://ollama:11434.
+
+services:
+  brain:
+    build:
+      context: ../warden-brain      # adjust to your infra <-> brain relative path
+    # image: warden-brain:dev        # ...or use a prebuilt image instead of build
+    ports:
+      - "8083:8000"
+    environment:
+      # --- LLM (host Ollama) ---
+      LLM_HOST: http://host.docker.internal:11434
+      LLM_MODEL: llama3.2:3b
+      # --- service ---
+      APP_ENV: docker
+      LOG_LEVEL: info
+      # --- downstream (reached by compose service name, internal ports) ---
+      AUTH_BASE_URL: http://auth:8082
+      GATEWAY_BASE_URL: http://gateway:8080
+      BRAIN_CLIENT_ID: brain
+      BRAIN_CLIENT_SECRET: dev-brain-secret
+      # --- user-token verification (JWKS from auth) ---
+      JWT_ISSUER: warden-auth
+      JWT_AUDIENCE: warden-brain
+      JWT_JWKS_PATH: /.well-known/jwks.json
+      # --- tracing (point at the infra Jaeger's OTLP gRPC port) ---
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      OTEL_SERVICE_NAME: warden-brain
+    depends_on:
+      auth:
+        condition: service_started
+      gateway:
+        condition: service_started
+    extra_hosts:
+      # lets Linux containers resolve the host (for host Ollama); harmless on Mac/Win.
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health/live').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+# CROSS-REPO REMINDER (warden-auth): for /chat to accept a user's login token,
+# auth must issue user tokens that include `warden-brain` in their `aud`. Add the
+# brain to auth's AUDIENCE list, or the JWT verification 401s even on a good login.
