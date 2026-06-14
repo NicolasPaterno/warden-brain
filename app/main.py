@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes_chat import router as chat_router
@@ -24,7 +25,7 @@ async def lifespan(app: FastAPI):
         level=settings.log_level.upper(),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    async with httpx.AsyncClient() as http:
+    async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as http:
         llm = LlmClient(
             host=settings.llm_host,
             model=settings.llm_model
@@ -50,6 +51,20 @@ async def lifespan(app: FastAPI):
         yield
 
 app = FastAPI(lifespan=lifespan)
+
+# Let the browser front-end POST /chat from its own origin. No-op when the list
+# is empty (front reaches the brain same-origin). allow_credentials forbids "*",
+# so origins are always listed explicitly via config.
+_cors_origins = get_settings().cors_allow_origins
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
 
 @app.exception_handler(LlmError)
 async def handle_llm_error(request: Request, exc: LlmError) -> JSONResponse:
