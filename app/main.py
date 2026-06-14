@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.domain.errors import LlmError, UpstreamError
 from app.security.jwt_verifier import JwtVerifier
 from app.services.chat_service import ChatService
+from app.telemetry import setup_metrics, setup_tracing
 
 
 @asynccontextmanager
@@ -60,3 +61,6 @@ async def handle_llm_error(request: Request, exc: LlmError) -> JSONResponse:
 
 app.include_router(health_router)
 app.include_router(chat_router)
+
+setup_metrics(app)
+setup_tracing(app, get_settings())
