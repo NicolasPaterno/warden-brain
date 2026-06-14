@@ -17,6 +17,17 @@ class Settings(BaseSettings):
     gateway_base_url: str = "http://localhost:8080"
     brain_client_id: str = ""
     brain_client_secret: str = ""
+    jwt_issuer: str = "warden-auth"
+    jwt_audience: str = "warden-brain"
+    jwt_jwks_path: str = "/.well-known/jwks.json"
+
+    # Observability (Phase 5). Empty OTLP endpoint disables tracing (local dev).
+    otel_exporter_otlp_endpoint: str = ""
+    otel_service_name: str = "warden-brain"
+
+    @property
+    def jwks_url(self) -> str:
+        return f"{self.auth_base_url.rstrip('/')}{self.jwt_jwks_path}"
 
 
 @lru_cache

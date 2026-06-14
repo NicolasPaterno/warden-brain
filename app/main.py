@@ -5,13 +5,14 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.api.routes_health import router as health_router
 from app.api.routes_chat import router as chat_router
+from app.api.routes_health import router as health_router
 from app.clients.auth_client import AuthClient
 from app.clients.gateway_client import GatewayClient
 from app.clients.llm_client import LlmClient
 from app.config import get_settings
-from app.domain.errors import LlmError
+from app.domain.errors import LlmError, UpstreamError
+from app.security.jwt_verifier import JwtVerifier
 from app.services.chat_service import ChatService
 
 
@@ -38,7 +39,13 @@ async def lifespan(app: FastAPI):
             http=http
         )
 
+        app.state.llm_client = llm
         app.state.chat_service = ChatService(llm, auth, gateway)
+        app.state.jwt_verifier = JwtVerifier(
+            jwks_url=settings.jwks_url,
+            issuer=settings.jwt_issuer,
+            audience=settings.jwt_audience,
+        )
         yield
 
 app = FastAPI(lifespan=lifespan)
