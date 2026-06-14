@@ -59,6 +59,14 @@ async def handle_llm_error(request: Request, exc: LlmError) -> JSONResponse:
     )
 
 
+@app.exception_handler(UpstreamError)
+async def handle_upstream_error(request: Request, exc: UpstreamError) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "The home data service is temporarily unavailable."},
+    )
+
+
 app.include_router(health_router)
 app.include_router(chat_router)
 

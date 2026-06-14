@@ -2,6 +2,7 @@ from datetime import datetime
 
 import httpx
 
+from app.domain.errors import UpstreamError
 from app.domain.reading import SensorReading
 
 
@@ -13,15 +14,18 @@ class GatewayClient:
     async def get_readings(
         self, token: str, room: str, sensor_type: str, start: datetime, end: datetime
             ) -> list[SensorReading]:
-        response = await self._http.get(
-            f"{self._base_url}/api/readings",
-            params={
-                "room": room,
-                "type": sensor_type,
-                "from": start.isoformat(),
-                "to": end.isoformat(),
-            },
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        response.raise_for_status()
+        try:
+            response = await self._http.get(
+                f"{self._base_url}/api/readings",
+                params={
+                    "room": room,
+                    "type": sensor_type,
+                    "from": start.isoformat(),
+                    "to": end.isoformat(),
+                },
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as err:
+            raise UpstreamError(f"gateway readings request failed: {err}") from err
         return [SensorReading(**reading) for reading in response.json()]
