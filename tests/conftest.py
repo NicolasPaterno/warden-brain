@@ -55,15 +55,25 @@ class FakeGatewayClient:
     """Stands in for GatewayClient. Returns canned readings and records the
     query parameters of each call."""
 
-    def __init__(self, readings: list[SensorReading] | None = None) -> None:
+    def __init__(
+        self,
+        readings: list[SensorReading] | None = None,
+        rooms: list[str] | None = None,
+    ) -> None:
         self._readings = list(readings or [])
+        self._rooms = list(rooms or [])
         self.calls: list[dict] = []
+        self.rooms_calls: list[str] = []
 
     async def get_readings(self, token, room, sensor_type, start, end) -> list[SensorReading]:
         self.calls.append(
             {"token": token, "room": room, "type": sensor_type, "start": start, "end": end}
         )
         return list(self._readings)
+
+    async def list_rooms(self, token) -> list[str]:
+        self.rooms_calls.append(token)
+        return list(self._rooms)
 
 
 class FakeJwtVerifier:

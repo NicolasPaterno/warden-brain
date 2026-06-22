@@ -10,17 +10,20 @@ from tests.conftest import FakeAuthClient, FakeGatewayClient, FakeLlmClient
 
 
 async def test_direct_answer_skips_tools():
-    """LLM answers without a tool call -> no exchange, no gateway hit."""
+    """LLM answers without a tool call -> the brain still exchanges the token and
+    lists rooms up front (needed to build the tool's room enum before turn 0), but
+    never fetches readings."""
     llm = FakeLlmClient(replies=[LlmReply(content="Hi there")])
     auth = FakeAuthClient()
-    gateway = FakeGatewayClient()
+    gateway = FakeGatewayClient(rooms=["bedroom"])
     service = ChatService(llm, auth, gateway)
 
     out = await service.answer(ChatRequest(user_message="hello"), user_token="u")
 
     assert out == ChatAnswer(answer="Hi there")
     assert len(llm.calls) == 1
-    assert auth.calls == []
+    assert auth.calls == [("u", "warden-gateway")]
+    assert gateway.rooms_calls == ["exchanged-token"]
     assert gateway.calls == []
 
 
@@ -55,6 +58,34 @@ async def test_tool_call_grounds_answer_in_gateway(sample_readings):
     # The second LLM turn was fed the tool result.
     second_turn_messages = llm.calls[1]["messages"]
     assert any(m.get("role") == "tool" for m in second_turn_messages)
+
+
+@pytest.mark.skip(reason="skeleton — write the assertions")
+async def test_room_enum_is_grounded_in_tenant_rooms():
+    """The get_readings tool handed to the LLM constrains `room` to the tenant's
+    real rooms. Inspect the tool via `llm.calls[0]["tools"][0]` and assert on
+    function.parameters.properties.room.enum."""
+    llm = FakeLlmClient(replies=[LlmReply(content="ok")])
+    gateway = FakeGatewayClient(rooms=["bedroom", "kitchen"])
+    service = ChatService(llm, FakeAuthClient(), gateway)
+
+    await service.answer(ChatRequest(user_message="hi"), user_token="u")
+
+    # room_schema = llm.calls[0]["tools"][0]["function"]["parameters"]["properties"]["room"]
+    # assert room_schema["enum"] == ...
+
+
+@pytest.mark.skip(reason="skeleton — write the assertions")
+async def test_room_enum_falls_back_to_free_string_when_no_rooms():
+    """When the gateway returns no rooms, `room` carries no enum (free string)."""
+    llm = FakeLlmClient(replies=[LlmReply(content="ok")])
+    gateway = FakeGatewayClient(rooms=[])
+    service = ChatService(llm, FakeAuthClient(), gateway)
+
+    await service.answer(ChatRequest(user_message="hi"), user_token="u")
+
+    # room_schema = llm.calls[0]["tools"][0]["function"]["parameters"]["properties"]["room"]
+    # assert "enum" not in room_schema ...
 
 
 async def test_direct_answer_with_none_content_uses_fallback():
@@ -93,6 +124,9 @@ async def test_gateway_failure_propagates_as_upstream_error(sample_readings):
     to 503) — never a raw httpx exception leaking through the service."""
 
     class FailingGateway:
+        async def list_rooms(self, *args, **kwargs):
+            return []
+
         async def get_readings(self, *args, **kwargs):
             raise UpstreamError("gateway down")
 

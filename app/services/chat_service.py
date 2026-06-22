@@ -5,6 +5,7 @@ from app.clients.auth_client import AuthClient
 from app.clients.gateway_client import GatewayClient
 from app.clients.llm_client import LlmClient
 from app.domain.chat import ChatAnswer, ChatRequest
+from app.domain.errors import UpstreamError
 from app.domain.reading import SensorReading
 
 logger = logging.getLogger(__name__)
@@ -13,41 +14,48 @@ logger = logging.getLogger(__name__)
 # times the model may call a tool before we give up and return a fallback.
 MAX_TURNS = 4
 
-GET_READINGS_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "get_readings",
-        "description": (
-            "Fetches recent sensor readings for a given room from the home's sensor "
-            "system. Call this tool whenever the user asks about the conditions or "
-            "environment of the house (temperature, humidity, movement, air quality), "
-            "so the answer is grounded in real data."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                # TODO (see TODO.md): `room` enum is dynamic — fetch available rooms from the
-                # gateway at runtime instead of a free string / hardcoded "bedroom".
-                "room": {"type": "string", "description": "The room to query, e.g. 'bedroom'."},
-                "type": {
-                    "type": "string",
-                    "enum": ["temperature", "humidity", "motion", "co2"],
-                    "description": "The kind of sensor metric to retrieve.",
+def build_get_readings_tool(rooms: list[str]) -> dict:
+    """Build the get_readings tool schema, constraining `room` to the rooms that
+    actually exist for this user's tenant. A fresh dict is built per call so the
+    per-request `enum` never leaks across requests. When `rooms` is empty (e.g.
+    the gateway is unreachable), `room` falls back to a free string."""
+    room_schema: dict = {"type": "string", "description": "The room to query, e.g. 'bedroom'."}
+    if rooms:
+        room_schema["enum"] = rooms
+
+    return {
+        "type": "function",
+        "function": {
+            "name": "get_readings",
+            "description": (
+                "Fetches recent sensor readings for a given room from the home's sensor "
+                "system. Call this tool whenever the user asks about the conditions or "
+                "environment of the house (temperature, humidity, movement, air quality), "
+                "so the answer is grounded in real data."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "room": room_schema,
+                    "type": {
+                        "type": "string",
+                        "enum": ["temperature", "humidity", "motion", "co2"],
+                        "description": "The kind of sensor metric to retrieve.",
+                    },
+                    "period": {
+                        "type": "string",
+                        "enum": ["last_hour", "last_24h", "last_7d"],
+                        "description": (
+                            "How far back to look. Use 'last_hour' for current/now "
+                            "conditions, 'last_24h' for today or last night, 'last_7d' for "
+                            "the past week. Defaults to 'last_24h' if the user gives no time."
+                        ),
+                    },
                 },
-                "period": {
-                    "type": "string",
-                    "enum": ["last_hour", "last_24h", "last_7d"],
-                    "description": (
-                        "How far back to look. Use 'last_hour' for current/now "
-                        "conditions, 'last_24h' for today or last night, 'last_7d' for "
-                        "the past week. Defaults to 'last_24h' if the user gives no time."
-                    ),
-                },
+                "required": ["room", "type"],
             },
-            "required": ["room", "type"],
         },
-    },
-}
+    }
 
 
 class ChatService:
@@ -75,14 +83,28 @@ class ChatService:
         ]
         logger.info("chat start: question=%r", request.user_message)
 
-        # The exchanged gateway token is the same for the whole request, so trade
-        # the user's token at most ONCE (lazily, on the first tool call). Doing it
-        # per call/turn would spam auth's token-exchange and risk its rate limiter.
-        gw_token: str | None = None
+        # Trade the user's token for a gateway-scoped on-behalf-of token ONCE, up
+        # front: we need it to fetch the room list BEFORE the LLM's first turn, so
+        # the get_readings tool can constrain `room` to rooms that actually exist.
+        # The exchanged token carries the user's tenant, so /api/rooms (and later
+        # /api/readings) are scoped to THIS user's tenant by the gateway. One
+        # exchange for the whole request also avoids spamming auth's rate limiter.
+        gw_token = await self.auth.exchange(user_token, "warden-gateway")
+
+        # Ground the tool's `room` enum in the tenant's real rooms. If the gateway
+        # is unreachable, degrade to a free-string room instead of failing the chat.
+        try:
+            rooms = await self.gateway.list_rooms(gw_token)
+        except UpstreamError:
+            logger.warning("could not list rooms; falling back to free-string room", exc_info=True)
+            rooms = []
+        logger.info("available rooms for tenant: %s", rooms)
+
+        tool = build_get_readings_tool(rooms)
 
         for turn in range(MAX_TURNS):
             logger.debug("turn %d: calling llm with %d messages", turn, len(messages))
-            reply = await self.llm.chat(messages, tools=[GET_READINGS_TOOL])
+            reply = await self.llm.chat(messages, tools=[tool])
 
             if not reply.tool_calls:
                 logger.info("turn %d: llm answered directly (no tool call)", turn)
@@ -110,9 +132,6 @@ class ChatService:
             )
             for call in reply.tool_calls:
                 logger.info("tool call: name=%s arguments=%s", call.name, call.arguments)
-                if gw_token is None:
-                    gw_token = await self.auth.exchange(user_token, "warden-gateway")
-
                 period = call.arguments.get("period", "last_24h")
                 end = datetime.now(timezone.utc)
                 start = end - self._period_to_delta(period)

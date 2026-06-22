@@ -29,3 +29,17 @@ class GatewayClient:
         except httpx.HTTPError as err:
             raise UpstreamError(f"gateway readings request failed: {err}") from err
         return [SensorReading(**reading) for reading in response.json()]
+
+    async def list_rooms(self, token: str) -> list[str]:
+        # The gateway scopes rooms to the tenant carried inside `token` (the
+        # exchanged on-behalf-of token), so this returns only the logged-in
+        # user's rooms — there is no tenant parameter to pass.
+        try:
+            response = await self._http.get(
+                f"{self._base_url}/api/rooms",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as err:
+            raise UpstreamError(f"gateway rooms request failed: {err}") from err
+        return response.json()
