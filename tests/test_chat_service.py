@@ -60,7 +60,6 @@ async def test_tool_call_grounds_answer_in_gateway(sample_readings):
     assert any(m.get("role") == "tool" for m in second_turn_messages)
 
 
-@pytest.mark.skip(reason="skeleton — write the assertions")
 async def test_room_enum_is_grounded_in_tenant_rooms():
     """The get_readings tool handed to the LLM constrains `room` to the tenant's
     real rooms. Inspect the tool via `llm.calls[0]["tools"][0]` and assert on
@@ -71,11 +70,10 @@ async def test_room_enum_is_grounded_in_tenant_rooms():
 
     await service.answer(ChatRequest(user_message="hi"), user_token="u")
 
-    # room_schema = llm.calls[0]["tools"][0]["function"]["parameters"]["properties"]["room"]
-    # assert room_schema["enum"] == ...
+    room_schema = llm.calls[0]["tools"][0]["function"]["parameters"]["properties"]["room"]
+    assert room_schema["enum"] == ["bedroom", "kitchen"]
 
 
-@pytest.mark.skip(reason="skeleton — write the assertions")
 async def test_room_enum_falls_back_to_free_string_when_no_rooms():
     """When the gateway returns no rooms, `room` carries no enum (free string)."""
     llm = FakeLlmClient(replies=[LlmReply(content="ok")])
@@ -84,8 +82,9 @@ async def test_room_enum_falls_back_to_free_string_when_no_rooms():
 
     await service.answer(ChatRequest(user_message="hi"), user_token="u")
 
-    # room_schema = llm.calls[0]["tools"][0]["function"]["parameters"]["properties"]["room"]
-    # assert "enum" not in room_schema ...
+    room_schema = llm.calls[0]["tools"][0]["function"]["parameters"]["properties"]["room"]
+    assert "enum" not in room_schema
+    assert room_schema["type"] == "string"
 
 
 async def test_direct_answer_with_none_content_uses_fallback():
